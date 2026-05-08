@@ -1,8 +1,12 @@
+from turtle import pd
+
 import streamlit as st
 import preprocessor
 import helper
 import matplotlib.pyplot as plt
 import seaborn as sns
+import pandas as pd
+
 
 
 st.sidebar.title("Whatsapp Chat Analyzer")
@@ -129,3 +133,17 @@ if uploaded_file is not None:
         fig, ax = plt.subplots()
         ax = sns.heatmap(user_heatmap)
         st.pyplot(fig)
+
+        st.title("Sentiment Analysis")
+        df[["sentiment_score", "sentiment_label"]] = df["message"].apply(lambda x: pd.Series(helper.get_sentiment(x)))
+        #for each person
+        st.dataframe(df)
+
+        # # cluster users
+        # st.title("User Clustering")
+        # cluster_df = helper.cluster_users(selected_user, df)
+        # st.dataframe(cluster_df)
+        # #scatter plot for clusters
+        # fig, ax = plt.subplots()
+        # sns.scatterplot(x=df['day'], y=df['hour'], hue=cluster_df['cluster'], palette='Set1', ax=ax)
+        # st.pyplot(fig)
