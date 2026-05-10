@@ -10,23 +10,37 @@ def preprocess_text(text):
     # removing urls
     text = re.sub(r'http\S+|www\S+|https\S+', '', text, flags=re.MULTILINE)
     
-    
     # remove punctuation but keep letters
     text = re.sub(r"[^a-zA-Z\s]", " ", text)
     
+    # removing numbers
+    text = re.sub(r'\d+', '', text)
+
     # removing extra whitespace
     text = re.sub(r"\s+", " ", text).strip()
     
     return text
+    
 
-df = pd.read_csv('hinglish_english_dataset.csv')
-df = df[['text', 'sentiment_score']]
-# df['sentiment_score'] = df['sentiment_score'].apply(lambda x: 1 if x > 0 else 0)
+#Reading a textfile with label as filename and text as the content of the file on each line
+with open('dataset/negative.txt', 'r') as f:
+    negative_texts = [line.strip() for line in f]
+
+with open('dataset/positive.txt', 'r') as f:
+    positive_texts = [line.strip() for line in f]
+
+# Create a DataFrame with the texts and their labels
+df = pd.DataFrame({
+    'text': negative_texts + positive_texts,
+    'sentiment_score': [0] * len(negative_texts) + [1] * len(positive_texts)
+})
+df = df.sample(frac=1, random_state=42).reset_index(drop=True)
 
 df['text'] = df['text'].apply(preprocess_text)
-import nltk
 
+import nltk
 from sklearn.feature_extraction.text import TfidfVectorizer
+
 # nltk.download('stopwords')
 vectorizer = TfidfVectorizer(
     max_features=12000,
@@ -40,15 +54,16 @@ X_tfidf = vectorizer.fit_transform(df['text'])
 X = X_tfidf
 y = df['sentiment_score']
 from sklearn.model_selection import train_test_split
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
 
 
 
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.metrics import mean_squared_error, r2_score, accuracy_score, precision_score, recall_score, f1_score
 from sklearn.linear_model import Ridge
 from sklearn.svm import LinearSVR
+from sklearn.linear_model import LogisticRegression
 
-model = LinearSVR()
+model = LogisticRegression()
 model.fit(X_train, y_train)
 
 # # hyperparameter tuning using GridSearchCV
@@ -62,12 +77,14 @@ model.fit(X_train, y_train)
 # Predictions
 y_pred = model.predict(X_test)
 
-# Evaluation
-mse = mean_squared_error(y_test, y_pred)
-r2 = r2_score(y_test, y_pred)
+# print(model.predict(X_test[1]))
+# print(y_test.iloc[1])
 
-print("Mean Squared Error:", mse)
-print("R2 Score:", r2)
+# classification Evaluation
+print("Accuracy:", accuracy_score(y_test, y_pred))
+print("Precision:", precision_score(y_test, y_pred))
+print("Recall:", recall_score(y_test, y_pred))
+print("F1 Score:", f1_score(y_test, y_pred))
 
 
 

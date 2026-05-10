@@ -135,15 +135,54 @@ if uploaded_file is not None:
         st.pyplot(fig)
 
         st.title("Sentiment Analysis")
-        df[["sentiment_score", "sentiment_label"]] = df["message"].apply(lambda x: pd.Series(helper.get_sentiment(x)))
+        df[["cleaned_text", "sentiment_score", "sentiment_label"]] = df["message"].apply(lambda x: pd.Series(helper.get_sentiment(x)))
         #for each person
         st.dataframe(df)
 
-        # # cluster users
-        # st.title("User Clustering")
-        # cluster_df = helper.cluster_users(selected_user, df)
-        # st.dataframe(cluster_df)
-        # #scatter plot for clusters
-        # fig, ax = plt.subplots()
-        # sns.scatterplot(x=df['day'], y=df['hour'], hue=cluster_df['cluster'], palette='Set1', ax=ax)
-        # st.pyplot(fig)
+        sentiment_counts = df["sentiment_label"].value_counts()
+        st.write(sentiment_counts)
+        st.bar_chart(df["sentiment_label"].value_counts())
+
+
+        # MULTICLASS CLASSIFICATION - Emotion Analysis
+        df["predicted_emotion"] = df["message"].apply(helper.predict_emotion)
+        st.title("Emotion Analysis")
+        st.dataframe(df[["message", "predicted_emotion"]])
+
+        emotion_counts = df["predicted_emotion"].value_counts()
+        fig, ax = plt.subplots()
+        ax.pie(emotion_counts, labels=emotion_counts.index, autopct="%0.1f%%")
+        st.pyplot(fig)
+
+        emotion_weights = {
+        "joy": 1,"happy": 1,
+            "neutral": 0,
+            "sadness": 2,
+            "sad": 2,
+            "fear": 2,
+            "anger": 3,
+            "disgust": 3,
+            "surprise": 2
+        }
+        df["emotion_score"] = df["predicted_emotion"].map(emotion_weights).fillna(1)
+        most_emotional_user = df.groupby("user")["emotion_score"].sum().sort_values(ascending=False)
+        st.title("Most Emotional User")
+        st.dataframe(most_emotional_user[0:1])
+
+        # #TOPIC MODELING
+        # st.title("Topic Modeling")
+        # df,topics = helper.topic_modelling(df)
+        # st.dataframe(df)
+        # topic_counts = df["topic"].value_counts().sort_index()
+
+        # for topic_num, count in topic_counts.items():
+        #     st.subheader(f"Topic {topic_num+1} (Messages: {count})")
+        #     words = topics[topic_num][1]
+        #     st.write(" ".join(words))
+
+        # Summary of chat
+        st.title("Chat Summary")
+        chat_text = " ".join(df["message"].astype(str).tolist())
+
+        summary = helper.summarize_text(chat_text)
+        st.write(summary)

@@ -4,13 +4,16 @@ import pandas as pd
 from collections import Counter
 import emoji
 from SentimentAnalysismodel import preprocess_text
-from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 
 
 # importing the trained model
 import joblib
 trained_model = joblib.load('trained_model.pkl')
 vectorizer = joblib.load('vectorizer.pkl')
+
+emotion_model = joblib.load("emotion_model.pkl")
+emotion_vectorizer = joblib.load("emotion_vectorizer.pkl")
 
 def fetch_stats(selected_user,df):
     if selected_user != 'Overall':
@@ -125,37 +128,88 @@ def activity_heatmap(selected_user,df):
         df = df[df['user'] == selected_user]
 
     user_heatmap = df.pivot_table(index='day_name', columns='period', values='message', aggfunc='count').fillna(0)
-
     return user_heatmap
 
 def get_sentiment(text):
     text = preprocess_text(text)
     text_vec = vectorizer.transform([text])
-    score = trained_model.predict(text_vec)[0]
+    score = trained_model.predict_proba(text_vec)[0][1]  # Probability of being positive
 
-    if score > 0.2:
+    if score >= 0.6:
         label = "Positive"
-    elif score < -0.2:
+    elif score <= 0.4:
         label = "Negative"
     else:
         label = "Neutral"
 
-    return score, label
+    return text,score, label
 
 
-#Clustering model for user clustering based on their activity patterns
-def cluster_users(selected_user,df):
-    if selected_user != 'Overall':
-        df = df[df['user'] == selected_user]
 
-    features = df[['only_date','year','month_num','hour','minute']]  
+def predict_emotion(text):
+    clean_text = preprocess_text(text)
+
+    if clean_text == "" or len(clean_text.split()) <= 2:
+        return "neutral"
+
+    vec = emotion_vectorizer.transform([clean_text])
+    emotion = emotion_model.predict(vec)[0]
+
+    return emotion
     
-    features['only_date'] = features['only_date'].apply(lambda x: x.toordinal())
+
+def topic_modelling(df):
+    import re
+    import nltk
+    from nltk.corpus import stopwords
+
+    nltk.download("stopwords")
+    stop_words = set(stopwords.words("english"))
+
+    def clean_topic_text(text):
+        text = str(text).lower()
+        # remove urls
+        text = re.sub(r"http\S+|www\S+", "", text)
+        # remove mentions and numbers
+        text = re.sub(r"@\d+", "", text)
+        text = re.sub(r"\d+", "", text)
+        # remove punctuation
+        text = re.sub(r"[^a-zA-Z\s]", " ", text)
+        # remove extra spaces
+        text = re.sub(r"\s+", " ", text).strip()
+        # remove stopwords
+        words = [w for w in text.split() if w not in stop_words and len(w) > 2]
+        return " ".join(words)
+    df["clean_message"] = df["message"].apply(clean_topic_text)
+
+    # remove empty messages
+    df = df[df["clean_message"].str.strip() != ""]
+    from sklearn.feature_extraction.text import CountVectorizer
+
+    vectorizer = CountVectorizer(max_df=0.9, min_df=5)
+    X = vectorizer.fit_transform(df["clean_message"])
+    from sklearn.decomposition import LatentDirichletAllocation
+
+    lda_model = LatentDirichletAllocation(n_components=5, random_state=42)
+    lda_model.fit(X)
+
+    topic_distribution = lda_model.transform(X)
+    df["topic"] = topic_distribution.argmax(axis=1)
+    topics = {}
+    for topic_num, comp in enumerate(lda_model.components_):
+        word_indices = comp.argsort()[-10:][::-1]
+        words = [vectorizer.get_feature_names_out()[i] for i in word_indices]
+        topics[topic_num] = words
+    return df,topics
 
 
-    from sklearn.cluster import KMeans
-    kmeans = KMeans(n_clusters=3)  # You can choose the number of clusters based on your data
-    df['cluster'] = kmeans.fit_predict(features)
-    return df[['user', 'cluster']]
 
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
+tokenizer = AutoTokenizer.from_pretrained("sshleifer/distilbart-cnn-12-6")
+model = AutoModelForSeq2SeqLM.from_pretrained("sshleifer/distilbart-cnn-12-6")
+
+def summarize_text(text):
+    inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=1024)
+    summary_ids = model.generate(inputs["input_ids"], max_length=80, min_length=30)
+    return tokenizer.decode(summary_ids[0], skip_special_tokens=True)
