@@ -1,5 +1,3 @@
-from turtle import pd
-
 import streamlit as st
 import preprocessor
 import helper
@@ -7,9 +5,11 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 
+from matplotlib import rcParams
+rcParams['font.family'] = 'Segoe UI Emoji'
 
 
-st.sidebar.title("Whatsapp Chat Analyzer")
+st.sidebar.title("Employee Communication & Productivity Tracking")
 uploaded_file = st.sidebar.file_uploader("Choose a file")
 
 if uploaded_file is not None:
@@ -49,7 +49,7 @@ if uploaded_file is not None:
 
     #USER ENGAGEMENT
         if selected_user == 'Overall':
-            st.title("User Engagement")
+            st.title("Team Contribution")
             x,y = helper.user_engagement(df)
             col5,col6 = st.columns(2)
             with col5:
@@ -60,7 +60,7 @@ if uploaded_file is not None:
                 st.dataframe(y)
 
         #WORD CLOUD
-        st.title("Word Cloud")
+        st.title("Frequent Work Keywords")
         df_wc = helper.create_WordCloud(selected_user,df)
         fig,ax = plt.subplots()
         ax.imshow(df_wc)
@@ -75,11 +75,11 @@ if uploaded_file is not None:
         ax.barh(most_common_df[0], most_common_df[1])
         plt.xticks(rotation='vertical')
 
-        st.title('Most commmon words')
+        st.title('Most Discussed Words')
         st.pyplot(fig)
 
         #emoji analysis
-        st.title('Emoji Analysis')
+        st.title('Emoji Analysis for Tone Indication')
         emoji_df = helper.emoji_analysis(selected_user,df)
 
         col7,col8 = st.columns(2)
@@ -113,7 +113,7 @@ if uploaded_file is not None:
         col1, col2 = st.columns(2)
 
         with col1:
-            st.header("Most busy day")
+            st.header("Peak Collaboration Days")
             busy_day = helper.week_activity_map(selected_user, df)
             fig, ax = plt.subplots()
             ax.bar(busy_day.index, busy_day.values, color='purple')
@@ -139,9 +139,14 @@ if uploaded_file is not None:
         #for each person
         st.dataframe(df)
 
-        sentiment_counts = df["sentiment_label"].value_counts()
-        st.write(sentiment_counts)
-        st.bar_chart(df["sentiment_label"].value_counts())
+        col9,col10 = st.columns(2)
+        with col9:
+            st.title("Sentiment Distribution")
+            sentiment_counts = df["sentiment_label"].value_counts()
+            st.write(sentiment_counts)
+        with col10:
+            st.title("Sentiment Bar Chart")
+            st.bar_chart(df["sentiment_label"].value_counts())
 
 
         # MULTICLASS CLASSIFICATION - Emotion Analysis
@@ -154,35 +159,68 @@ if uploaded_file is not None:
         ax.pie(emotion_counts, labels=emotion_counts.index, autopct="%0.1f%%")
         st.pyplot(fig)
 
-        emotion_weights = {
-        "joy": 1,"happy": 1,
-            "neutral": 0,
-            "sadness": 2,
-            "sad": 2,
-            "fear": 2,
-            "anger": 3,
-            "disgust": 3,
-            "surprise": 2
-        }
-        df["emotion_score"] = df["predicted_emotion"].map(emotion_weights).fillna(1)
-        most_emotional_user = df.groupby("user")["emotion_score"].sum().sort_values(ascending=False)
-        st.title("Most Emotional User")
-        st.dataframe(most_emotional_user[0:1])
+        # AI-Generated Content Detection
+        df["text_origin"] = df["message"].apply(helper.predict_ai_content)
 
-        # #TOPIC MODELING
-        # st.title("Topic Modeling")
-        # df,topics = helper.topic_modelling(df)
-        # st.dataframe(df)
-        # topic_counts = df["topic"].value_counts().sort_index()
+        # Display results
+        col_ai1, col_ai2 = st.columns(2)
 
-        # for topic_num, count in topic_counts.items():
-        #     st.subheader(f"Topic {topic_num+1} (Messages: {count})")
-        #     words = topics[topic_num][1]
-        #     st.write(" ".join(words))
+        with col_ai1:
+            st.subheader("Message Classification")
+            st.dataframe(df[["user", "message", "text_origin"]].head(10))
 
-        # Summary of chat
-        st.title("Chat Summary")
-        chat_text = " ".join(df["message"].astype(str).tolist())
+        with col_ai2:
+            st.subheader("Distribution")
+            ai_counts = df["text_origin"].value_counts()
+            fig, ax = plt.subplots()
+            ax.pie(ai_counts, labels=ai_counts.index, autopct="%0.1f%%", colors=['#66b3ff','#99ff99'])
+            st.pyplot(fig)
 
-        summary = helper.summarize_text(chat_text)
-        st.write(summary)
+        # Identification of 'Suspicious' users
+        st.subheader("Most 'AI-Reliant' Users")
+        ai_user_stats = df[df["text_origin"] == "AI-Generated"]["user"].value_counts()
+        st.bar_chart(ai_user_stats)
+
+
+
+
+        # Response Time
+        st.title("Response Time Analysis")
+        response_df = helper.create_response_time_dataset(df)
+        st.dataframe(response_df.head())
+        helper.train_response_time_model(response_df)
+
+        st.title("⏱ Response Time Prediction (ML)")
+
+        responder_list = list(response_df["responder"].unique())
+
+        selected_responder = st.selectbox("Select Employee", responder_list)
+        hour = st.slider("Hour of Day", 0, 23, 10)
+        day = st.selectbox("Day of Week", ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"])
+        msg_length = st.slider("Message Length (characters)", 1, 200, 40)
+
+        day_map = {"Mon":0,"Tue":1,"Wed":2,"Thu":3,"Fri":4,"Sat":5,"Sun":6}
+        dayofweek = day_map[day]
+
+        if st.button("Predict Response Time"):
+            pred = helper.predict_response_time(selected_responder, hour, dayofweek, msg_length)
+
+            st.success(f"📌 Predicted Response Time: {pred:.2f} minutes")
+
+        # st.title("⏱ Response Time Analysis Dashboard")
+
+
+        # # KPIs
+        # avg_time, median_time, fastest_user, slowest_user, fast_pct, sla_pct = helper.calculate_response_kpis(response_df)
+
+        # col1, col2, col3 = st.columns(3)
+        # col1.metric("Avg Response Time (min)", f"{avg_time:.2f}")
+        # col2.metric("Median Response Time (min)", f"{median_time:.2f}")
+        # col3.metric("Replies within 5 min (%)", f"{fast_pct:.1f}%")
+
+        # col4, col5, col6 = st.columns(3)
+        # col4.metric("SLA Compliance (<10 min)", f"{sla_pct:.1f}%")
+        # col5.metric("Fastest Responder", fastest_user)
+        # col6.metric("Slowest Responder", slowest_user)
+
+        # st.divider()

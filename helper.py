@@ -1,19 +1,25 @@
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_absolute_error, r2_score
+from sklearn.model_selection import train_test_split
 from urlextract import URLExtract
 from wordcloud import WordCloud
 import pandas as pd
 from collections import Counter
 import emoji
-from SentimentAnalysismodel import preprocess_text
+from Models.SentimentAnalysismodel import X_test, X_train, preprocess_text
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 
 
 # importing the trained model
 import joblib
-trained_model = joblib.load('trained_model.pkl')
-vectorizer = joblib.load('vectorizer.pkl')
+trained_model = joblib.load('Trained_Models/trained_model.pkl')
+vectorizer = joblib.load('Trained_Models/vectorizer.pkl')
 
-emotion_model = joblib.load("emotion_model.pkl")
-emotion_vectorizer = joblib.load("emotion_vectorizer.pkl")
+emotion_model = joblib.load("Trained_Models/emotion_model.pkl")
+emotion_vectorizer = joblib.load("Trained_Models/emotion_vectorizer.pkl")
+
+ai_model = joblib.load("Trained_Models/ai_detector_model.pkl")
+ai_detector_vectorizer = joblib.load("Trained_Models/ai_detector_vectorizer.pkl")
 
 def fetch_stats(selected_user,df):
     if selected_user != 'Overall':
@@ -149,7 +155,7 @@ def get_sentiment(text):
 def predict_emotion(text):
     clean_text = preprocess_text(text)
 
-    if clean_text == "" or len(clean_text.split()) <= 2:
+    if clean_text == "" or len(clean_text.split()) < 6:
         return "neutral"
 
     vec = emotion_vectorizer.transform([clean_text])
@@ -158,58 +164,106 @@ def predict_emotion(text):
     return emotion
     
 
-def topic_modelling(df):
-    import re
-    import nltk
-    from nltk.corpus import stopwords
 
-    nltk.download("stopwords")
-    stop_words = set(stopwords.words("english"))
-
-    def clean_topic_text(text):
-        text = str(text).lower()
-        # remove urls
-        text = re.sub(r"http\S+|www\S+", "", text)
-        # remove mentions and numbers
-        text = re.sub(r"@\d+", "", text)
-        text = re.sub(r"\d+", "", text)
-        # remove punctuation
-        text = re.sub(r"[^a-zA-Z\s]", " ", text)
-        # remove extra spaces
-        text = re.sub(r"\s+", " ", text).strip()
-        # remove stopwords
-        words = [w for w in text.split() if w not in stop_words and len(w) > 2]
-        return " ".join(words)
-    df["clean_message"] = df["message"].apply(clean_topic_text)
-
-    # remove empty messages
-    df = df[df["clean_message"].str.strip() != ""]
-    from sklearn.feature_extraction.text import CountVectorizer
-
-    vectorizer = CountVectorizer(max_df=0.9, min_df=5)
-    X = vectorizer.fit_transform(df["clean_message"])
-    from sklearn.decomposition import LatentDirichletAllocation
-
-    lda_model = LatentDirichletAllocation(n_components=5, random_state=42)
-    lda_model.fit(X)
-
-    topic_distribution = lda_model.transform(X)
-    df["topic"] = topic_distribution.argmax(axis=1)
-    topics = {}
-    for topic_num, comp in enumerate(lda_model.components_):
-        word_indices = comp.argsort()[-10:][::-1]
-        words = [vectorizer.get_feature_names_out()[i] for i in word_indices]
-        topics[topic_num] = words
-    return df,topics
+def predict_ai_content(text):
+    clean_text = preprocess_text(text)
+    
+    if clean_text == "" or len(clean_text.split()) < 10:
+        return "Human" # Short messages are hard to classify as AI
+        
+    vec = ai_detector_vectorizer.transform([clean_text])
+    prediction = ai_model.predict(vec)[0]
+    
+    return "AI-Generated" if prediction == 1 else "Human-Written"
 
 
 
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
-tokenizer = AutoTokenizer.from_pretrained("sshleifer/distilbart-cnn-12-6")
-model = AutoModelForSeq2SeqLM.from_pretrained("sshleifer/distilbart-cnn-12-6")
+def create_response_time_dataset(df):
+    df = df.copy()
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.sort_values("date").reset_index(drop=True)
 
-def summarize_text(text):
-    inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=1024)
-    summary_ids = model.generate(inputs["input_ids"], max_length=80, min_length=30)
-    return tokenizer.decode(summary_ids[0], skip_special_tokens=True)
+    response_rows = []
+
+    for i in range(len(df)-1):
+        user = df.loc[i, "user"]
+        msg_time = df.loc[i, "date"]
+
+        # find next message from another user
+        for j in range(i+1, len(df)):
+            if df.loc[j, "user"] != user:
+                next_time = df.loc[j, "date"]
+                responder = df.loc[j, "user"]
+
+                response_time_minutes = (next_time - msg_time).total_seconds() / 60
+
+                response_rows.append({
+                    "sender": user,
+                    "responder": responder,
+                    "message": df.loc[i, "message"],
+                    "response_time": response_time_minutes,
+                    "hour": msg_time.hour,
+                    "dayofweek": msg_time.dayofweek,
+                    "msg_length": len(str(df.loc[i, "message"]))
+                })
+                break
+
+    response_df = pd.DataFrame(response_rows)
+
+    # remove extreme outliers (like 2 days reply)
+    response_df = response_df[response_df["response_time"] <= 720]  # 12 hours max
+    response_df = response_df[response_df["response_time"] >= 0]
+
+    return response_df
+
+def train_response_time_model(response_df):
+    X = response_df[["hour", "dayofweek", "msg_length"]]
+    y = response_df["response_time"]
+    from sklearn.model_selection import train_test_split
+    from sklearn.ensemble import RandomForestRegressor
+    from sklearn.metrics import mean_absolute_error, r2_score
+
+    X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42)
+
+    model = RandomForestRegressor(n_estimators=200, random_state=42)
+    model.fit(X_train, y_train)
+
+    y_pred = model.predict(X_test)
+
+    print("MAE:", mean_absolute_error(y_test, y_pred))
+    print("R2:", r2_score(y_test, y_pred))
+    joblib.dump(model, "response_time_rf_model.pkl")
+    joblib.dump(le, "responder_encoder.pkl")
+
+
+
+def predict_response_time(responder_name, hour, dayofweek, msg_length):
+    rf_model = joblib.load("response_time_rf_model.pkl")
+    le = joblib.load("responder_encoder.pkl")
+    responder_encoded = le.transform([responder_name])[0]
+
+    X_new = pd.DataFrame([{
+        "responder_encoded": responder_encoded,
+        "hour": hour,
+        "dayofweek": dayofweek,
+        "msg_length": msg_length
+    }])
+
+    predicted_time = rf_model.predict(X_new)[0]
+    return predicted_time 
+
+
+# def calculate_response_kpis(response_df):
+#     avg_time = response_df["response_time_min"].mean()
+#     median_time = response_df["response_time_min"].median()
+
+#     fastest_user = response_df.groupby("responder")["response_time_min"].mean().idxmin()
+#     slowest_user = response_df.groupby("responder")["response_time_min"].mean().idxmax()
+
+#     fast_pct = (response_df["response_time_min"] <= 5).mean() * 100
+#     sla_pct = (response_df["response_time_min"] <= 10).mean() * 100
+
+#     return avg_time, median_time, fastest_user, slowest_user, fast_pct, sla_pct
+    

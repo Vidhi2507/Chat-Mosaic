@@ -1,3 +1,5 @@
+from os import name
+
 import joblib
 import pandas as pd
 
@@ -20,7 +22,6 @@ def preprocess_text(text):
     text = re.sub(r"\s+", " ", text).strip()
     
     return text
-    
 
 #Reading a textfile with label as filename and text as the content of the file on each line
 with open('dataset/negative.txt', 'r') as f:
@@ -80,14 +81,14 @@ y_pred = model.predict(X_test)
 # print(model.predict(X_test[1]))
 # print(y_test.iloc[1])
 
-# classification Evaluation
-print("Accuracy:", accuracy_score(y_test, y_pred))
-print("Precision:", precision_score(y_test, y_pred))
-print("Recall:", recall_score(y_test, y_pred))
-print("F1 Score:", f1_score(y_test, y_pred))
+# # classification Evaluation
+# print("Accuracy:", accuracy_score(y_test, y_pred))
+# print("Precision:", precision_score(y_test, y_pred))
+# print("Recall:", recall_score(y_test, y_pred))
+# print("F1 Score:", f1_score(y_test, y_pred))
 
 
 
 # After training your_model
-joblib.dump(model, 'trained_model.pkl')
-joblib.dump(vectorizer, 'vectorizer.pkl')
+# joblib.dump(model, 'Trained_Models/trained_model.pkl')
+# joblib.dump(vectorizer, 'Trained_Models/vectorizer.pkl')
