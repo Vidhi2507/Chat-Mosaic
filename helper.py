@@ -6,8 +6,8 @@ from wordcloud import WordCloud
 import pandas as pd
 from collections import Counter
 import emoji
-from Models.SentimentAnalysismodel import X_test, X_train, preprocess_text
-from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
+from Models.SentimentAnalysismodel import preprocess_text
+from sklearn.preprocessing import LabelEncoder
 
 
 # importing the trained model
@@ -218,14 +218,17 @@ def create_response_time_dataset(df):
     return response_df
 
 def train_response_time_model(response_df):
-    X = response_df[["hour", "dayofweek", "msg_length"]]
+    response_df = response_df.copy()
+
+    le = LabelEncoder()
+    response_df["responder_encoded"] = le.fit_transform(response_df["responder"])
+
+    X = response_df[["responder_encoded", "hour", "dayofweek", "msg_length"]]
     y = response_df["response_time"]
-    from sklearn.model_selection import train_test_split
-    from sklearn.ensemble import RandomForestRegressor
-    from sklearn.metrics import mean_absolute_error, r2_score
 
     X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42)
+        X, y, test_size=0.2, random_state=42
+    )
 
     model = RandomForestRegressor(n_estimators=200, random_state=42)
     model.fit(X_train, y_train)
@@ -234,25 +237,25 @@ def train_response_time_model(response_df):
 
     print("MAE:", mean_absolute_error(y_test, y_pred))
     print("R2:", r2_score(y_test, y_pred))
+
     joblib.dump(model, "response_time_rf_model.pkl")
     joblib.dump(le, "responder_encoder.pkl")
+
+    return model, le
 
 
 
 def predict_response_time(responder_name, hour, dayofweek, msg_length):
     rf_model = joblib.load("response_time_rf_model.pkl")
     le = joblib.load("responder_encoder.pkl")
+
     responder_encoded = le.transform([responder_name])[0]
 
-    X_new = pd.DataFrame([{
-        "responder_encoded": responder_encoded,
-        "hour": hour,
-        "dayofweek": dayofweek,
-        "msg_length": msg_length
-    }])
+    X_new = pd.DataFrame([[responder_encoded, hour, dayofweek, msg_length]],
+                         columns=["responder_encoded", "hour", "dayofweek", "msg_length"])
 
     predicted_time = rf_model.predict(X_new)[0]
-    return predicted_time 
+    return predicted_time
 
 
 # def calculate_response_kpis(response_df):

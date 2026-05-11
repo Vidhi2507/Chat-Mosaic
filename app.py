@@ -8,7 +8,6 @@ import pandas as pd
 from matplotlib import rcParams
 rcParams['font.family'] = 'Segoe UI Emoji'
 
-
 st.sidebar.title("Employee Communication & Productivity Tracking")
 uploaded_file = st.sidebar.file_uploader("Choose a file")
 
@@ -185,42 +184,29 @@ if uploaded_file is not None:
 
 
         # Response Time
-        st.title("Response Time Analysis")
-        response_df = helper.create_response_time_dataset(df)
-        st.dataframe(response_df.head())
-        helper.train_response_time_model(response_df)
+    st.title("Response Time Analysis")
+    response_df = helper.create_response_time_dataset(df)
+    st.dataframe(response_df.head())
 
-        st.title("⏱ Response Time Prediction (ML)")
+    @st.cache_resource
+    def train_model_cached(response_df):
+            model, le = helper.train_response_time_model(response_df)
+            return model, le
 
-        responder_list = list(response_df["responder"].unique())
+    model, le = train_model_cached(response_df)
 
-        selected_responder = st.selectbox("Select Employee", responder_list)
+    st.title("⏱ Response Time Prediction (ML)")
+
+    with st.form("predict_form"):
+        selected_responder = st.selectbox("Select Employee", response_df["responder"].unique())
         hour = st.slider("Hour of Day", 0, 23, 10)
         day = st.selectbox("Day of Week", ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"])
         msg_length = st.slider("Message Length (characters)", 1, 200, 40)
+        day_mapping = {"Mon":0, "Tue":1, "Wed":2, "Thu":3, "Fri":4, "Sat":5, "Sun":6}
+        day_encoded = day_mapping[day]
+        submitted = st.form_submit_button("Predict Response Time")
 
-        day_map = {"Mon":0,"Tue":1,"Wed":2,"Thu":3,"Fri":4,"Sat":5,"Sun":6}
-        dayofweek = day_map[day]
-
-        if st.button("Predict Response Time"):
-            pred = helper.predict_response_time(selected_responder, hour, dayofweek, msg_length)
-
+        if submitted:
+            pred = helper.predict_response_time(selected_responder, hour, day_encoded, msg_length)
             st.success(f"📌 Predicted Response Time: {pred:.2f} minutes")
-
-        # st.title("⏱ Response Time Analysis Dashboard")
-
-
-        # # KPIs
-        # avg_time, median_time, fastest_user, slowest_user, fast_pct, sla_pct = helper.calculate_response_kpis(response_df)
-
-        # col1, col2, col3 = st.columns(3)
-        # col1.metric("Avg Response Time (min)", f"{avg_time:.2f}")
-        # col2.metric("Median Response Time (min)", f"{median_time:.2f}")
-        # col3.metric("Replies within 5 min (%)", f"{fast_pct:.1f}%")
-
-        # col4, col5, col6 = st.columns(3)
-        # col4.metric("SLA Compliance (<10 min)", f"{sla_pct:.1f}%")
-        # col5.metric("Fastest Responder", fastest_user)
-        # col6.metric("Slowest Responder", slowest_user)
-
-        # st.divider()
+        
